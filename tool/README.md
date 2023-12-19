@@ -1,6 +1,6 @@
 # NPETest
 
-This directory contains source codes for "Automatic Test Case Generator Specialized for NPE" - NPETest.
+This directory contains source codes for "Effective Unit Test Generation for Java Null Pointer Exceptions" - NPETest.
 
 ## Table of Contents
 - [Installation](#installation)
