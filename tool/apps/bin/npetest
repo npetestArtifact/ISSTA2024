@@ -1,0 +1,170 @@
+#!/usr/bin/env python3
+
+import argparse
+import sys
+import os
+import subprocess
+
+from subprocess import TimeoutExpired
+
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+
+INFO=f'{GREEN}[INFO]'
+ERR=f'{RED}[ERR ]'
+NC='\033[0m'
+
+NPETEST_JAVA = ''
+NPETEST_JAR = ''
+
+def setup_env():
+    '''manually setup environment variables from apps/configs/bashrc
+    export NPETEST_JAVA=...
+    export NPETEST_JAR=...
+    export PATH=... // except this one
+    '''
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    config_file = script_dir + '/../configs/bashrc'
+    _npetest_configs = subprocess.check_output('cat ' + config_file, shell=True)
+    npetest_configs = dict(
+            line[7:].split("=", 1)
+            for line in _npetest_configs.decode().splitlines()[:2]
+            if line
+    )
+    global NPETEST_JAVA
+    global NPETEST_JAR
+    NPETEST_JAVA = npetest_configs['NPETEST_JAVA']
+    NPETEST_JAR = npetest_configs['NPETEST_JAR']
+
+def setup_auxiliary_classpath(mvn_dir):
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+
+    auxiliary_classpath = ''
+    if not os.path.exists(mvn_dir + '/target/dependency'):
+        return auxiliary_classpath
+
+    for jar in os.listdir(mvn_dir + '/target/dependency'):
+        if not jar.endswith('.jar'):
+            continue
+        auxiliary_classpath = f'{auxiliary_classpath}:{mvn_dir}/target/dependency/{jar}'
+    return auxiliary_classpath[1:]
+
+
+def npetest():
+    global NPETEST_JAVA
+    global NPETEST_JAR
+
+    try:
+        NPETEST_JAVA=os.environ['NPETEST_JAVA']
+        NPETEST_JAR=os.environ['NPETEST_JAR']
+    except KeyError:
+        setup_env()
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--list-options', required=False, action='store_true')
+
+    # Input format
+    parser.add_argument('--mvn', required=False, type=str)
+    parser.add_argument('--jar', required=False, type=str)
+    parser.add_argument('--cuts', required=False, type=str)
+    parser.add_argument('--muts', required=False, type=str)
+    parser.add_argument('--auxiliary-classpath', required=False, type=str)
+    
+    # Time budget
+    parser.add_argument('--time-budget', required=False, default=300, type=int)
+    
+    # Java and JUnit version
+    parser.add_argument('--java-version', required=False, default=8, type=int)
+    parser.add_argument('--junit-version', required=False, default=4, type=int)
+    
+    # Output
+    parser.add_argument('--test-dir', required=False, default='npetest', type=str)
+    parser.add_argument('--report-dir', required=False, default='npetest-report', type=str)
+    parser.add_argument('--debug-dir', required=False, default='npetest-debug', type=str)
+    parser.add_argument('--write-duplicated-fault', required=False, action='store_true')
+    parser.add_argument('--tests-per-suite', required=False, default=0, type=int)
+
+    # Additional configuration
+    parser.add_argument('--filter-mut', required=False, action='store_true')
+    parser.add_argument('--exclude-test-dirs', required=False, type=str)
+    parser.add_argument('--seed-existing-tests', required=False, action='store_true')
+    parser.add_argument('--null-probability', required=False, default=0.0, type=float)
+    parser.add_argument('--seed-gen-stopping-condition', required=False, default="TIME", type=str)
+    parser.add_argument('--seed-selection-strategy', required=False, default="DEFAULT", type=str)
+    parser.add_argument('--mut-selection-strategy', required=False, default="DEFAULT", type=str)
+    parser.add_argument('--mutation-strategy', required=False, default="DEFAULT", type=str)
+    parser.add_argument('--enable-analysis', required=False, action='store_true')
+
+    # Debugging
+    parser.add_argument('--verbose', required=False, action='store_true')
+    parser.add_argument('--auto-import', required=False, action='store_true')
+    parser.add_argument('--debug', required=False, action='store_true')
+    parser.add_argument('--log-level', required=False, choices=['DEBUG', 'ERROR', 'INFO'],
+                        default='INFO', type=str)
+    parser.add_argument('--print-comment', required=False, action='store_true')
+
+    args = parser.parse_args()
+
+    if args.list_options:
+        cmd = f'{NPETEST_JAVA}/bin/java -classpath {NPETEST_JAR} npetest.Main --help'
+        subprocess.run(cmd, shell=True)
+        sys.exit(0)
+    
+    cmd = f'{NPETEST_JAVA}/bin/java -ea -Xmx16384m -XX:-OmitStackTraceInFastThrow --add-opens java.base/java.lang=ALL-UNNAMED'
+    cmd = f'{cmd} -classpath {NPETEST_JAR} npetest.Main'
+
+    if args.mvn:
+        mvn_dir = args.mvn
+        mvn_dir = os.path.abspath(mvn_dir)
+        cmd = f'{cmd} --mvn {mvn_dir}' 
+        auxiliary_classpath = setup_auxiliary_classpath(mvn_dir)
+        if auxiliary_classpath:
+            cmd = f'{cmd} --auxiliary-classpath {auxiliary_classpath}'
+    elif args.jar:
+        cmd = f'{cmd} --jar {args.jar}'
+        if args.auxiliary_classpath:
+            cmd = f'{cmd} --auxiliary-classpath {args.auxiliary_classpath}'
+    
+    if args.cuts:
+        cuts = args.cuts
+        cmd = f'{cmd} --cuts {cuts}'
+    elif args.muts:
+        muts = args.muts
+        cmd = f'{cmd} --muts \'{muts}\''
+    else:
+        cmd = f'{cmd} --whole-project'
+
+    cmd = f'{cmd} --time-budget {args.time_budget}'
+
+    cmd = f'{cmd} --java-version {args.java_version}'
+    cmd = f'{cmd} --junit-version {args.junit_version}'
+
+    cmd = f'{cmd} --test-dir {args.test_dir}'
+    cmd = f'{cmd} --report-dir {args.report_dir}'
+    cmd = f'{cmd} --debug-dir {args.debug_dir}'
+    cmd = f'{cmd} --tests-per-suite {args.tests_per_suite}'
+    cmd = f'{cmd} {"--write-duplicated-fault" if args.write_duplicated_fault else "--write-duplicated-fault=false"}'
+
+    cmd = f'{cmd} {"--filter-mut" if args.filter_mut else ""}'
+    cmd = f'{cmd} {"--exclude-test-dirs args.exclude_test_dirs" if args.exclude_test_dirs else ""}'
+    cmd = f'{cmd} {"--seed-existing-tests" if args.seed_existing_tests else ""}'
+    cmd = f'{cmd} --null-probability {args.null_probability}'
+    cmd = f'{cmd} --seed-gen-stopping-condition {args.seed_gen_stopping_condition}'
+    cmd = f'{cmd} --seed-selection-strategy {args.seed_selection_strategy}'
+    cmd = f'{cmd} --mut-selection-strategy {args.mut_selection_strategy}'
+    cmd = f'{cmd} --mutation-strategy {args.mutation_strategy}'
+    cmd = f'{cmd} {"--enable-analysis" if args.enable_analysis else ""}'
+
+    cmd = f'{cmd} {"--debug" if args.debug else ""}'
+    cmd = f'{cmd} {"--verbose" if args.verbose else ""}'
+    cmd = f'{cmd} {"--auto-import" if args.auto_import else ""}'
+    cmd = f'{cmd} --log-level {args.log_level}'
+
+    cmd = f'{cmd} {"--print-comment" if args.print_comment else ""}'
+
+    print(cmd)
+
+    os.system(cmd)
+
+if __name__ == '__main__':
+    npetest()

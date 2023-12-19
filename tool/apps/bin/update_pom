@@ -1,0 +1,90 @@
+#!/usr/bin/env python3
+
+import argparse
+import os
+import shutil
+import xml.etree.ElementTree as ET
+
+ns_name = ''
+ns_value = 'http://maven.apache.org/POM/4.0.0'
+ET.register_namespace(ns_name, ns_value)
+
+PROFILES = '{{{}}}profiles'.format(ns_value)
+PLUGINS = '{{{}}}plugins'.format(ns_value)
+PLUGIN_REPOSITORIES = '{{{}}}pluginRepositories'.format(ns_value)
+BUILD = '{{{}}}build'.format(ns_value)
+
+def find_elements(tree, tag):
+    if tag == "plugin":
+        return tree.find(BUILD).find(PLUGINS)
+    elif tag == "pluginRepository":
+        return tree.find(PLUGIN_REPOSITORIES)
+    elif tag == "profile":
+        return tree.find(PROFILES)
+    else:
+        exit(1);
+
+
+def parse_pom(filepath):
+    if not os.path.exists(filepath):
+        raise argparse.ArgumentTypeError('{} does not exist'.format(filepath))
+
+    pom_file = os.path.abspath(filepath)
+    pom_tree = ET.parse(pom_file)
+    return pom_tree
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Prepare each benchmark for test experiment',
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+
+    parser.add_argument(
+        '--target-pom', metavar='TARGET_POM', required=True, type=str,
+        help='Path to target pom.xml')
+
+    parser.add_argument(
+        '--pom-element-file', metavar='POM_ELEMENT_FILE', required=True, type=str,
+        help='Path to xml file consisting only of specific pom element')
+
+    parser.add_argument(
+        '--element-id', metavar='ELEMENT_ID', required=True, type=str,
+        help='the name of element id, used for xml tag in pom.xml')
+
+    parser.add_argument(
+        '--new-pom-suffix', metavar='NEW_POM_SUFFIX', required=False, type=str,
+        default='', help='the suffix of newly generated pom')
+
+    args = parser.parse_args()
+    pom_element_file = args.pom_element_file
+    target_pom_file = args.target_pom
+    suffix = args.new_pom_suffix
+    element_id = args.element_id
+    
+    pom_element_tree = parse_pom(pom_element_file)
+    pom_element_tree_root = pom_element_tree.getroot()
+    elements = find_elements(pom_element_tree_root, element_id)
+
+    target_pom_tree = parse_pom(target_pom_file)
+    target_pom_root = target_pom_tree.getroot()
+    target_pom_elements = find_elements(target_pom_root, element_id)
+
+    if target_pom_elements is not None:
+        for element in elements:
+            target_pom_elements.append(element)
+    else:
+        # element_id will be profile
+        target_pom_root.append(elements)
+
+
+    pom_file = os.path.abspath(target_pom_file)
+    new_pom_file = pom_file[:-4] + '.' + suffix + pom_file[-4:] if suffix != '' else pom_file
+    
+    if suffix == '':
+        backup_pom_file = pom_file[:-4] + '.' + 'backup' + pom_file[-4:]
+        shutil.copy(pom_file, backup_pom_file)
+        target_pom_tree.write(new_pom_file)
+
+
+if __name__ == '__main__':
+    main()
