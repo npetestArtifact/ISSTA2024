@@ -1,6 +1,6 @@
 # NPETest
 This repository contains the source codes for NPETest and other resources inclulding experimental data 
-to support the paper "Effective Test Case Generation for Java Null Pointer Exceptions".
+to support the paper "Effective Unit Test Generation for Java Null Pointer Exceptions".
 
 ## Benchmarks
 The directory [benchmarks](./benchmarks) contains all benchmarks.
