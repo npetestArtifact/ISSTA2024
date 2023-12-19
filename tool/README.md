@@ -2,6 +2,10 @@
 
 This directory contains source codes for "Effective Unit Test Generation for Java Null Pointer Exceptions" - NPETest.
 
+
+# LICENSE
+This work is funded from an IT company, and the license [LICENSE](./tool/LICENSE) is confirmed by the IT company.
+
 ## Table of Contents
 - [Installation](#installation)
     * [Maven command](#maven-command)
